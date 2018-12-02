@@ -3,7 +3,10 @@ var express = require('express');
 var path = require('path');
 var cookieParser = require('cookie-parser');
 var logger = require('morgan');
-const MongoClient = require('mongodb').MongoClient;
+var companyDB = require('./inMemoryDb').companyDB
+var employeesDB = require('./inMemoryDb').employeesDB
+var jobsDB = require('./inMemoryDb').jobsDB
+// const MongoClient = require('mongodb').MongoClient;
 
 var indexRouter = require('./routes/index');
 var usersRouter = require('./routes/users');
@@ -18,40 +21,11 @@ const from = process.env.MANAGER_PHONE_NUMBER
 const to = process.env.JIM_PHONE_NUMBER
 const text = 'Hello from Nexmo'
 
-nexmo.message.sendSms(from, to, text)
+// nexmo.message.sendSms(from, to, text)
 var app = express();
 
 // Connection URL
-const dbURL = process.env.DB_URL;
-
-const updateTask = (phone, timeStamp) => {
-  // Use connect method to connect to the server
-  return new Promise((res, rej) => {
-    MongoClient.connect(dbURL, function (err, client) {
-      console.log("Connected successfully to server");
-      // console.log(client)
-      console.log('err', err)
-      const db = client.db(process.env.DB_NAME);
-      console.log('db', collection)
-      console.log(collection)
-      db.manager.find({})
-      // const employee = collection.employees.filter(employee => employee.phone === phone)
-      // console.log(employee)
-      // res(employee)
-      //   db.employees.findOne({ phone }, function (err, employee) {
-      //     if (err) {
-      //       rej(err)
-      //       return
-      //     }
-      //     console.log(employee)
-      //     res(employee)
-      //     client.close();
-      //   })
-      //   console.log("Close DB");
-      //   client.close();
-    });
-  })
-}
+//const dbURL = process.env.DB_URL;
 
 const start = new Date().getTime();
 
@@ -61,33 +35,52 @@ app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
-
 app
   .route('/webhooks/inbound-sms')
   .get(handleInboundSms)
   .post(handleInboundSms)
 
-function handleInboundSms(request, response) {
-  const params = Object.assign(request.query, request.body)
+function updateJobEmployee(phone, timestamp, keyword, callback) {
+  console.log("updating", employeesDB)
+  const employeeID = employeesDB.find(employee => employee.phone === phone)["id"]
+  const job = jobsDB.find(job => job.assignee_id === employeeID)
+  console.log("THIS IS THE JOB BEFORE", job)
+  if (keyword.toLowerCase() === "here") {
+    job["actual_time_started"] = timestamp 
+    console.log("TIME STARTED UPDATED", job)
+    return callback({
+      msg: "Time Start Update Successful.",
+      status: 200,
+      job
+    })
+  } else if (keyword.toLowerCase() === "done") {
+    job["actual_time_ended"] = timestamp
+    job["completed"] = true
+    console.log("TIME ENDED UPDATED", job)
+    return callback({
+      msg: "Time End Update Successful.",
+      status: 200,
+      job
+    })
+  }
+}
+
+function updateJobManager(job_id) {
+  const job = jobsDB.find(job => job.id === job_id)
+  job["approved"] = true
+  console.log("LoOK AT THE JOB NOW", job)
+  const employeeID = job['assignee_id']
+  const employee = employeesDB.find(employee => employee.id === job['assignee_id'])
+  employee['points'] += job['points']
+}
+
+function handleInboundSms(req, res) {
+  const params = Object.assign(req.query, req.body)
   console.log(params)
-  const done = new Date(params['message-timestamp']).getTime();
-  // Look at the phone number,
-  // Find the employee that has this phone number,
-  // Find the job that the employee is working on.
-  // If not started, updated the start time.
-  // If started, updated the end time.
-
-
-  console.log(start)
-  console.log(done)
-  // 'YYYY-MM-DD HH:MM:SS'
-
-  console.log('This guy took this long:', done - start)
-  // updateTask(params['msisdn:'], params['message-timestamp']).then(response => {
-  response.status(204).send();
-  // }).catch(err => {
-  //   response.status(500).send(err);
-  // })
+  updateJobEmployee(params['msisdn'], params['message-timestamp'], params['keyword'], (response) => {
+    console.log("HELLO this is a response", response)
+    res.send(response)
+  })
 }
 
 app.use('/', indexRouter);
